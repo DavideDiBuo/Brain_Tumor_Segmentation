@@ -1,4 +1,2 @@
-# Tesi-Progetto
-Let's see how it looks 
-Figo eh
-Seocndo cambiamento
+# Brain Tumors detection
+Let's see how it works
