@@ -1,158 +1,158 @@
-# Brain Tumor Segmentation con CNN (U-Net) su BraTS 2020 — Report (raw markdown)
+# Brain Tumor Segmentation with CNN (U-Net) on BraTS 2020 — Report (raw markdown)
 
-## 1) Introduzione: reti neurali, CNN e segmentazione
+## 1) Introduction: neural networks, CNNs, and segmentation
 
-### 1.1 Reti neurali (Neural Networks)
-Una **rete neurale artificiale** è un modello composto da strati (layer) di unità computazionali che applicano trasformazioni non lineari ai dati. In forma semplificata:
+### 1.1 Neural Networks
+An **artificial neural network** is a model composed of layers of computational units that apply non-linear transformations to data. In simplified form:
 
-- **Input**: vettore/tensore di caratteristiche (feature).
-- **Layer**: trasformazioni lineari (pesi) + **funzioni di attivazione** (ReLU, sigmoid, ecc.) per introdurre non linearità.
-- **Output**: predizione (classificazione, regressione, ecc.).
-- **Addestramento**: si minimizza una **funzione di perdita (loss)** tramite ottimizzazione (es. **Adam**) usando **backpropagation**.
+- **Input**: vector/tensor of features.
+- **Layers**: linear transformations (weights) + **activation functions** (ReLU, sigmoid, etc.) to introduce non-linearity.
+- **Output**: prediction (classification, regression, etc.).
+- **Training**: a **loss function** is minimized through optimization (e.g. **Adam**) using **backpropagation**.
 
-Nel deep learning, aumentando profondità e capacità del modello si riescono a catturare pattern complessi, a patto di avere dati e regolarizzazione adeguati.
+In deep learning, increasing the depth and capacity of the model makes it possible to capture complex patterns, provided that sufficient data and appropriate regularization are available.
 
 ### 1.2 Convolutional Neural Networks (CNN)
-Le **CNN** sono reti specializzate per dati strutturati come immagini. Al posto di collegamenti fully-connected, usano **convoluzioni**:
+**CNNs** are networks specialized for structured data such as images. Instead of fully-connected connections, they use **convolutions**:
 
-- Un kernel (filtro) scorre sull’immagine e produce feature map.
-- Le convoluzioni sfruttano **località** e **condivisione dei pesi**, riducendo parametri e migliorando generalizzazione.
-- Tipicamente si alternano:
+- A kernel (filter) slides over the image and produces feature maps.
+- Convolutions exploit **locality** and **weight sharing**, reducing the number of parameters and improving generalization.
+- Typically, the following blocks are alternated:
   - **Conv2D + ReLU**
-  - **Pooling** (es. MaxPooling) per ridurre risoluzione e aumentare campo recettivo
-  - (Opzionale) **Dropout / BatchNorm** per stabilità e regolarizzazione
+  - **Pooling** (e.g. MaxPooling) to reduce resolution and increase the receptive field
+  - (Optional) **Dropout / BatchNorm** for stability and regularization
 
-### 1.3 Segmentazione (semantic segmentation)
-La **segmentazione** consiste nel predire **una classe per ogni pixel (o voxel)**. In ambito medico (MRI, CT), serve per delineare strutture anatomiche o lesioni.
+### 1.3 Segmentation (semantic segmentation)
+**Segmentation** consists of predicting **one class for each pixel (or voxel)**. In medical imaging (MRI, CT), it is used to delineate anatomical structures or lesions.
 
-- **Classificazione**: una etichetta per immagine.
-- **Segmentazione**: una mappa di etichette (mask) della stessa dimensione dell’immagine.
-- Metriche tipiche:
-  - **Dice coefficient** (sovrapposizione)
+- **Classification**: one label per image.
+- **Segmentation**: a label map (mask) with the same dimensions as the image.
+- Typical metrics:
+  - **Dice coefficient** (overlap)
   - **IoU (Jaccard)** / MeanIoU
-  - Precision, Sensitivity (Recall), Specificity (soprattutto in contesti clinici)
+  - Precision, Sensitivity (Recall), Specificity (especially in clinical contexts)
 
 ---
 
-## 2) Dataset e obiettivi del progetto
+## 2) Dataset and project objectives
 
-### 2.1 Dataset: BraTS 2020 (MRI multimodale)
-Il notebook lavora sul dataset **BraTS 2020** (Brain Tumor Segmentation), che contiene per ciascun paziente una risonanza magnetica in diverse modalità e una maschera di segmentazione:
+### 2.1 Dataset: BraTS 2020 (multimodal MRI)
+The notebook works on the **BraTS 2020** (Brain Tumor Segmentation) dataset, which contains for each patient a magnetic resonance scan in multiple modalities and a segmentation mask:
 
-- **Modalità MRI tipiche**: *FLAIR, T1, T1CE (T1 contrast-enhanced), T2*
-- **Mask/seg**: etichette per regioni tumorali.
+- **Typical MRI modalities**: *FLAIR, T1, T1CE (T1 contrast-enhanced), T2*
+- **Mask/seg**: labels for tumor regions.
 
-Nel notebook, il data loader utilizza **solo 2 canali**:
+In the notebook, the data loader uses **only 2 channels**:
 - **FLAIR**
 - **T1CE**
 
-Questa scelta riduce la dimensionalità dell’input ma può perdere informazione presente in T1 e T2.
+This choice reduces the input dimensionality but may lose information present in T1 and T2.
 
-### 2.2 Classi di segmentazione
-Le classi (dopo conversione/uso nel notebook) sono:
+### 2.2 Segmentation classes
+The classes (after conversion/usage in the notebook) are:
 
 - `0` = **Background / NOT tumor**
 - `1` = **NECROTIC/CORE** (core/non-enhancing)
 - `2` = **EDEMA**
 - `3` = **ENHANCING**
 
-Nel codice sono mappate in un dizionario `SEGMENT_CLASSES`.
+In the code they are mapped in a `SEGMENT_CLASSES` dictionary.
 
-### 2.3 Obiettivo
-Allenare un modello di **semantic segmentation 2D** per predire, slice per slice, la maschera tumorale in 4 classi (background + 3 sotto-regioni tumorali), utilizzando come input le slice 2D delle MRI (FLAIR + T1CE).
+### 2.3 Objective
+To train a **2D semantic segmentation** model to predict, slice by slice, the tumor mask into 4 classes (background + 3 tumor sub-regions), using as input the 2D MRI slices (FLAIR + T1CE).
 
 ---
 
-## 3) Struttura del notebook e pipeline
+## 3) Notebook structure and pipeline
 
-### 3.1 Organizzazione dati
-- Il dataset viene letto da una cartella (in origine su Google Drive in Colab).
-- Si costruisce la lista degli ID (cartelle paziente) e poi si fa uno split:
+### 3.1 Data organization
+- The dataset is read from a folder (originally on Google Drive in Colab).
+- A list of IDs (patient folders) is built and then split into:
 
 - **Train/Validation/Test**:
-  - prima split: `val` = 15%
-  - seconda split: `test` = 15% del rimanente
-  - il resto = `train`
+  - first split: `val` = 15%
+  - second split: `test` = 15% of the remaining data
+  - the rest = `train`
 
-(Lo split avviene tramite `train_test_split` di scikit-learn.)
+(The split is performed using `train_test_split` from scikit-learn.)
 
 ### 3.2 Preprocessing
-Dal notebook:
+From the notebook:
 
-- **Selezione slice**:
+- **Slice selection**:
   - `VOLUME_SLICES = 100`
   - `VOLUME_START_AT = 22`
-  - quindi per ogni volume si prendono 100 slice a partire dalla slice 22 (tipicamente per evitare estremi “vuoti”).
+  - therefore, for each volume, 100 slices are taken starting from slice 22 (typically to avoid “empty” extremes).
 - **Resize**:
-  - immagini e maschere vengono portate a `IMG_SIZE = 128` (da 240×240 originali).
-  - per la maschera viene usata interpolazione **nearest neighbor** (corretta per label discrete).
-- **Normalizzazione**:
-  - l’input `X` viene normalizzato dividendo per `max(X)` (con epsilon per stabilità).
+  - images and masks are resized to `IMG_SIZE = 128` (from the original 240×240).
+  - for the mask, **nearest neighbor** interpolation is used (correct for discrete labels).
+- **Normalization**:
+  - the input `X` is normalized by dividing by `max(X)` (with epsilon for stability).
 - **One-hot encoding**:
-  - la maschera (H×W) diventa (H×W×4) con `tf.one_hot(depth=4)`.
+  - the mask (H×W) becomes (H×W×4) using `tf.one_hot(depth=4)`.
 
 ### 3.3 DataGenerator (Keras Sequence)
-Il notebook implementa un `DataGenerator` che, per ogni batch:
+The notebook implements a `DataGenerator` that, for each batch:
 
-1. carica i file NIfTI (`.nii`) di **FLAIR**, **T1CE** e **SEG**
-2. estrae le slice selezionate
-3. fa resize a 128×128
-4. costruisce `X` con **2 canali** (FLAIR, T1CE)
-5. costruisce `y` e poi la converte in one-hot (4 classi)
+1. loads the NIfTI (`.nii`) files for **FLAIR**, **T1CE**, and **SEG**
+2. extracts the selected slices
+3. resizes them to 128×128
+4. builds `X` with **2 channels** (FLAIR, T1CE)
+5. builds `y` and then converts it to one-hot encoding (4 classes)
 
-Questo permette di addestrare un modello 2D su slice pur partendo da volumi 3D.
+This allows training a 2D model on slices while starting from 3D volumes.
 
 ---
 
-## 4) Modello utilizzato: U-Net 2D
+## 4) Model used: 2D U-Net
 
-### 4.1 Perché U-Net
-La **U-Net** è uno standard per segmentazione biomedicale perché combina:
+### 4.1 Why U-Net
+**U-Net** is a standard for biomedical segmentation because it combines:
 
-- un **encoder** (downsampling) che cattura contesto globale
-- un **decoder** (upsampling) che ricostruisce la mappa di segmentazione
-- **skip connections** tra livelli corrispondenti (per recuperare dettagli spaziali)
+- an **encoder** (downsampling) that captures global context
+- a **decoder** (upsampling) that reconstructs the segmentation map
+- **skip connections** between corresponding levels (to recover spatial details)
 
-### 4.2 Architettura nel notebook
-Nel notebook la funzione `build_unet()` costruisce una U-Net con:
+### 4.2 Architecture in the notebook
+In the notebook, the `build_unet()` function builds a U-Net with:
 
 - Input: `(128, 128, 2)`
-- Encoder con filtri crescenti: **32 → 64 → 128 → 256 → 512**
-- Bottleneck con **Dropout(0.2)**
-- Decoder con upsampling e concatenazione con le feature dell’encoder (skip connections)
-- Output: `Conv2D(4, (1,1), activation='softmax')` per le **4 classi**
+- Encoder with increasing filters: **32 → 64 → 128 → 256 → 512**
+- Bottleneck with **Dropout(0.2)**
+- Decoder with upsampling and concatenation with encoder features (skip connections)
+- Output: `Conv2D(4, (1,1), activation='softmax')` for the **4 classes**
 
-Loss: **categorical cross-entropy** (coerente con softmax + one-hot).
+Loss: **categorical cross-entropy** (consistent with softmax + one-hot encoding).
 
-Ottimizzatore: **Adam** (`learning_rate = 0.001`).
+Optimizer: **Adam** (`learning_rate = 0.001`).
 
 ---
 
-## 5) Metriche e criteri di valutazione
+## 5) Metrics and evaluation criteria
 
 ### 5.1 Dice coefficient
-Il notebook usa un **Dice medio sulle classi** (media su 4 classi), calcolando per ogni classe:
+The notebook uses a **mean Dice over classes** (average over 4 classes), computing for each class:
 
 \[
 Dice_c = \frac{2|P_c \cap G_c| + \epsilon}{|P_c| + |G_c| + \epsilon}
 \]
 
-e poi media sui c.
+and then averaging over classes.
 
 ### 5.2 MeanIoU
-Usa `tf.keras.metrics.MeanIoU(num_classes=4)` per misurare l’IoU medio.
+`tf.keras.metrics.MeanIoU(num_classes=4)` is used to measure the mean IoU.
 
 ### 5.3 Precision / Sensitivity / Specificity
-Il notebook calcola anche:
+The notebook also computes:
 
 - **Precision** = TP / (TP + FP)
 - **Sensitivity (Recall)** = TP / (TP + FN)
 - **Specificity** = TN / (TN + FP)
 
-Sono presenti anche varianti “tumor-only” (escludendo il background), utili quando lo sbilanciamento tra background e tumore è forte.
+There are also “tumor-only” variants (excluding background), useful when class imbalance between background and tumor is strong.
 
-### 5.4 Dice per classe
-Oltre al Dice medio, il notebook calcola:
+### 5.4 Dice per class
+In addition to the mean Dice, the notebook computes:
 - Dice necrotic/core
 - Dice edema
 - Dice enhancing
@@ -161,26 +161,26 @@ Oltre al Dice medio, il notebook calcola:
 
 ## 6) Training
 
-- Epoche: **40**
+- Epochs: **40**
 - `steps_per_epoch = len(training_generator)`
-- Validation su `valid_generator`
+- Validation on `valid_generator`
 
-Il notebook usa anche callback (riduzione LR, checkpoint, logging su CSV) e produce grafici di:
+The notebook also uses callbacks (LR reduction, checkpointing, CSV logging) and produces plots of:
 - Dice (train/val)
-- Dice per classe (train/val)
-- Loss CCE (train/val)
+- Dice per class (train/val)
+- CCE Loss (train/val)
 - Accuracy (train/val)
 
 ---
 
-## 7) Risultati ottenuti (test set)
+## 7) Results obtained (test set)
 
-Dal notebook, valutazione sul **test set**:
+From the notebook, evaluation on the **test set**:
 
 - **Loss**: `0.0234`
 - **Accuracy**: `0.9924`
 - **MeanIoU**: `0.84`
-- **Dice coefficient (medio)**: `0.6183`
+- **Mean Dice coefficient**: `0.6183`
 - **Precision**: `0.9936`
 - **Sensitivity**: `0.9916`
 - **Specificity**: `0.9979`
@@ -188,34 +188,35 @@ Dal notebook, valutazione sul **test set**:
 - **Dice edema**: `0.6903`
 - **Dice enhancing**: `0.6655`
 
-### 7.1 Interpretazione
-- **Accuracy molto alta (≈0.992)**: tipicamente in segmentazione medicale può essere gonfiata dal fatto che il **background domina** (molti pixel non tumorali). Quindi accuracy da sola non è sufficiente.
-- **MeanIoU 0.84**: valore buono, indica una sovrapposizione media elevata.
-- **Dice medio 0.618**: moderato; più informativo dell’accuracy perché sensibile alla sovrapposizione delle regioni.
-- **Dice per classe**:
-  - necrotic/core è la più difficile (≈0.525)
-  - edema (≈0.690) e enhancing (≈0.666) sono migliori
-  - questo è coerente con la pratica: alcune regioni sono più piccole/irregolari e più soggette a errori.
+### 7.1 Interpretation
+- **Very high accuracy (≈0.992)**: in medical segmentation this can be inflated because the **background dominates** (many non-tumor pixels). Therefore, accuracy alone is not sufficient.
+- **MeanIoU 0.84**: a good value, indicating high average overlap.
+- **Mean Dice 0.618**: moderate; more informative than accuracy because it is sensitive to region overlap.
+- **Dice per class**:
+  - necrotic/core is the most difficult (≈0.525)
+  - edema (≈0.690) and enhancing (≈0.666) perform better
+  - this is consistent with practice: some regions are smaller/irregular and more error-prone.
 
 ---
 
-## 8) Limiti e possibili miglioramenti
+## 8) Limitations and possible improvements
 
-1. **Input multimodale incompleto**: usare anche T1 e T2 (4 canali) spesso migliora le performance su BraTS.
-2. **Approccio 2D slice-wise**: si perde coerenza 3D. Un 3D U-Net o un modello 2.5D (stack di slice) può migliorare.
-3. **Loss**: provare combinazioni come `DiceLoss + CCE` oppure focal loss per gestire sbilanciamento.
-4. **Data augmentation**: rotazioni, flip, elastic deformations (attenzione: coerenti su immagine e mask).
-5. **Post-processing**: rimozione di piccole componenti connesse spurie, smoothing morfologico, ecc.
-6. **Valutazione**: riportare anche metriche tumor-only in modo esplicito, e magari metriche per “whole tumor / tumor core / enhancing tumor” come nella convenzione BraTS.
+1. **Incomplete multimodal input**: using T1 and T2 as well (4 channels) often improves BraTS performance.
+2. **2D slice-wise approach**: 3D consistency is lost. A 3D U-Net or a 2.5D model (slice stacks) could improve results.
+3. **Loss function**: try combinations such as `DiceLoss + CCE` or focal loss to handle class imbalance.
+4. **Data augmentation**: rotations, flips, elastic deformations (warning: must be consistent on both image and mask).
+5. **Post-processing**: removal of small spurious connected components, morphological smoothing, etc.
+6. **Evaluation**: explicitly report tumor-only metrics, and possibly metrics for “whole tumor / tumor core / enhancing tumor” as in the BraTS convention.
 
 ---
 
-## 9) Conclusione
-Il notebook implementa una pipeline completa per segmentazione su BraTS 2020 con:
-- data generator per NIfTI
-- preprocessing (slice selection, resize, one-hot)
-- modello **U-Net 2D** (input 2 canali)
-- training e logging
-- valutazione su test set con metriche clinicamente rilevanti
+## 9) Conclusion
+The notebook implements a complete segmentation pipeline on BraTS 2020 with:
+- NIfTI data generator
+- preprocessing (slice selection, resize, one-hot encoding)
+- **2D U-Net** model (2-channel input)
+- training and logging
+- evaluation on the test set with clinically relevant metrics
 
-I risultati mostrano ottime metriche globali (accuracy/specificity/precision), mentre le metriche di sovrapposizione (Dice) evidenziano la difficoltà sulle classi tumorali più complesse, in particolare **necrotic/core**.
+The results show excellent global metrics (accuracy/specificity/precision), while overlap-based metrics (Dice) highlight the difficulty on more complex tumor classes, in particular **necrotic/core**.
+
