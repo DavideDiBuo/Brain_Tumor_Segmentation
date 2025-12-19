@@ -1,4 +1,4 @@
-# Brain Tumor Segmentation with CNN (U-Net) on BraTS 2020 — Report (raw markdown)
+# Brain Tumor Segmentation with CNN (U-Net) on BraTS 2020 — Report
 
 ## 1) Introduction: neural networks, CNNs, and segmentation
 
